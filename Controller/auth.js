@@ -3,7 +3,7 @@ import { hashPassword, comparePassword } from '../config/hashPassword.js';
 import { generateToken, verifyToken } from '../config/jwt.js';
 import TokenBlacklist from '../Model/tokenBlacklist.js';
 
-const userPayload = (user) => ({ id: user._id, name: user.name, email: user.email, role: user.role, status: user.status });
+const userPayload = (user) => ({ id: user._id, name: user.name, email: user.email, role: user.role, status: user.status, permissions: user.permissions || [] });
 
 export const signup = async (req, res) => {
   try {
@@ -12,7 +12,7 @@ export const signup = async (req, res) => {
     if (!name?.trim() || !normalizedEmail || !password || !phone?.trim() || !role) return res.status(400).json({ success: false, message: 'Name, email, mobile number, role, and password are required.' });
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) return res.status(400).json({ success: false, message: 'Enter a valid email address.' });
     if (password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
-    if (!['warehouse', 'qc-test', 'production', 'admin'].includes(role)) return res.status(400).json({ success: false, message: 'Select a valid role.' });
+    if (!['warehouse', 'qc-test', 'production'].includes(role)) return res.status(400).json({ success: false, message: 'Select a valid role.' });
     if (await User.exists({ email: normalizedEmail })) return res.status(409).json({ success: false, message: 'An account already exists for this email.' });
     const user = await User.create({ name: name.trim(), email: normalizedEmail, password: await hashPassword(password), phone: phone.trim(), role, status: 'Active' });
     return res.status(201).json({ success: true, message: 'Account created successfully. Please sign in.', data: { user: userPayload(user) } });

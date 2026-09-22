@@ -1,6 +1,6 @@
 import express from 'express';
 import { getOverview } from '../Controller/dashboard.js';
-import { protect } from '../Middleware/auth.js';
+import { adminOnly, protect } from '../Middleware/auth.js';
 const router = express.Router();
-router.get('/overview', protect, getOverview);
+router.get('/admin/overview', protect, adminOnly, getOverview);
 export default router;

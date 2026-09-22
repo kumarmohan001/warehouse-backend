@@ -27,6 +27,10 @@ const userSchema = new mongoose.Schema(
       enum: ['Active', 'Inactive'],
       default: 'Inactive',
     },
+    permissions: {
+      type: [String],
+      default: [],
+    },
   },
   {
     timestamps: true, 

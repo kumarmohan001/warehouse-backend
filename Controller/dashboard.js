@@ -2,8 +2,9 @@ import User from '../Model/user.js';
 
 export const getOverview = async (req, res) => {
   try {
-    const activeUsers = await User.countDocuments({ status: 'Active' });
-    return res.json({ success: true, data: { activeUsers, openRequisitions: 7, pendingQc: 5, dispatchesToday: 12, activities: [
+    // An unfiltered count deliberately includes the administrator making this request.
+    const totalUsers = await User.countDocuments({});
+    return res.json({ success: true, data: { totalUsers, activities: [
       { timestamp: 'Today, 09:12', user: 'R. Iyer', role: 'Warehouse', action: 'Accepted material', reference: 'GRN-01123' },
       { timestamp: 'Today, 09:04', user: 'A. Sharma', role: 'QC', action: 'Approved batch', reference: 'SMP-00456' },
       { timestamp: 'Today, 08:51', user: 'M. Fernandes', role: 'Production', action: 'Raised discrepancy', reference: 'MR-000125' },
