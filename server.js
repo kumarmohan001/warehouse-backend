@@ -20,9 +20,10 @@ const __dirname = path.dirname(__filename);
 
 // Frontend URL
 const allowedOrigins = [
-  "http://localhost:5173",            // your Vite dev server
-  "https://e-iindia-admin-tzyq.vercel.app" // your production domain
-];
+  "http://localhost:5173",
+  "https://warehouse-frontend-seven.vercel.app",
+  process.env.FRONTEND_URL
+].filter(Boolean);
 
 const corsOptions = {
   origin: (origin, callback) => {
