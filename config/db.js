@@ -1,14 +1,22 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
 const connectDB = async () => {
-  const mongoUri = "mongodb+srv://bravodavid7895_db_user:LdSMeDz3cZf2qQJt@cluster0.taylpfk.mongodb.net/WareHouse";
+  const mongoUri = process.env.MONGODB_URI;
+
   if (!mongoUri) {
-    throw new Error('Missing MongoDB URI. Set MONGODB_URI in the Render environment variables.');
+    throw new Error(
+      "Missing MongoDB URI. Set MONGODB_URI in the Render environment variables."
+    );
   }
 
-  await mongoose.connect(mongoUri);
-  console.log('MongoDB connected successfully.');
+  try {
+    await mongoose.connect(mongoUri);
+
+    console.log("MongoDB connected successfully.");
+  } catch (error) {
+    console.error("MongoDB connection failed:", error.message);
+    throw error;
+  }
 };
 
 export default connectDB;
-// done
