@@ -4,8 +4,9 @@ const router = express.Router();
 import { createUser, getAllUsers, getUserById, updateUser, deleteUser } from '../Controller/userController.js';
 import { adminOnly, protect } from '../Middleware/auth.js';
 
-router.use(protect, adminOnly);
+
 router.post('/', createUser);
+router.use(protect, adminOnly);
 router.get('/', getAllUsers);
 router.get('/getAllUsers', getAllUsers);
 router.get('/getUserById/:_id', getUserById);
