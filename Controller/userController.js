@@ -1,5 +1,7 @@
 import User from '../Model/user.js';
 import { hashPassword } from '../config/hashPassword.js';
+import { setUserPassword } from '../Service/passwordService.js';
+import { disconnectUser } from '../Service/socketService.js';
 
 const roles = ['warehouse', 'qc-test', 'production', 'admin'];
 const validPermissions = ['inventory:view', 'inventory:manage', 'qc:view', 'qc:manage', 'production:view', 'production:manage', 'reports:view'];
@@ -140,6 +142,8 @@ export const getUserById = async (req, res) => {
             data: user
         });
     } catch (error) {
+        if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
+        if (error.name === 'VersionError') return res.status(409).json({ success: false, message: 'This user was updated. Refresh and try again.' });
         console.error(error);
         return res.status(500).json({
             success: false,
@@ -182,8 +186,7 @@ export const updateUser = async (req, res) => {
         }
         if (phone !== undefined) updatedUser.phone = String(phone || '').trim();
         if (password) {
-            if (password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
-            updatedUser.password = await hashPassword(password);
+            await setUserPassword(updatedUser, password);
         }
         if (status) {
             if (!['Active', 'Inactive'].includes(status)) return res.status(400).json({ success: false, message: 'Select a valid status.' });
@@ -195,6 +198,7 @@ export const updateUser = async (req, res) => {
         }
         if (permissions !== undefined) updatedUser.permissions = normalizePermissions(permissions);
         await updatedUser.save();
+        if (password) disconnectUser(updatedUser._id);
 
         const userData = updatedUser.toObject(); delete userData.password;
 
@@ -204,6 +208,8 @@ export const updateUser = async (req, res) => {
             data: userData
         });
     } catch (error) {
+        if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
+        if (error.name === 'VersionError') return res.status(409).json({ success: false, message: 'This user was updated. Refresh and try again.' });
         console.error(error);
         return res.status(500).json({
             success: false,

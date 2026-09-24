@@ -1,14 +1,11 @@
+import { WorkflowEvent } from '../Model/workflow.js';
 import User from '../Model/user.js';
 
 export const getOverview = async (req, res) => {
   try {
     // An unfiltered count deliberately includes the administrator making this request.
     const totalUsers = await User.countDocuments({});
-    return res.json({ success: true, data: { totalUsers, activities: [
-      { timestamp: 'Today, 09:12', user: 'R. Iyer', role: 'Warehouse', action: 'Accepted material', reference: 'GRN-01123' },
-      { timestamp: 'Today, 09:04', user: 'A. Sharma', role: 'QC', action: 'Approved batch', reference: 'SMP-00456' },
-      { timestamp: 'Today, 08:51', user: 'M. Fernandes', role: 'Production', action: 'Raised discrepancy', reference: 'MR-000125' },
-      { timestamp: 'Yesterday, 18:20', user: req.user.name, role: req.user.role === 'admin' ? 'Admin' : 'User', action: 'Signed in to workspace', reference: `USR-${req.user._id.toString().slice(-5).toUpperCase()}` },
-    ] } });
+    const events = await WorkflowEvent.find().populate('actor', 'name role').sort({ createdAt: -1 }).limit(10);
+    return res.json({ success: true, data: { totalUsers, activities: events.map((entry) => ({ timestamp: entry.createdAt, user: entry.actor?.name || 'User', role: entry.actor?.role, action: entry.action, reference: entry.reference })) } });
   } catch (error) { console.error('Dashboard error:', error); return res.status(500).json({ success: false, message: 'Unable to load dashboard data.' }); }
 };

@@ -1,4 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
+import { createServer } from 'node:http';
+import { initializeWorkflow } from './Service/workflowService.js';
+import { initializeSockets } from './Service/socketService.js';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
@@ -25,6 +29,9 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
+const server = createServer(app);
+initializeSockets(server, corsOptions);
+
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json());
@@ -42,7 +49,8 @@ app.use((err, req, res, next) => {
 async function startServer() {
   try {
     await connectDB();
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    await initializeWorkflow();
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (error) {
     console.error('Server startup failed:', error.message || error);
     process.exit(1);

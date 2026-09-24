@@ -5,8 +5,8 @@ import { createUser, getAllUsers, getUserById, updateUser, deleteUser } from '..
 import { adminOnly, protect } from '../Middleware/auth.js';
 
 
-router.post('/', createUser);
 router.use(protect, adminOnly);
+router.post('/', createUser);
 router.get('/', getAllUsers);
 router.get('/getAllUsers', getAllUsers);
 router.get('/getUserById/:_id', getUserById);

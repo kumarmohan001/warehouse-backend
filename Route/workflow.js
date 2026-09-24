@@ -1,0 +1,34 @@
+import express from 'express';
+import multer from 'multer';
+import { protect } from '../Middleware/auth.js';
+import { auditEvents, list, detail, lookups, availableBatches, addLocation, summary, trace, uploadDocuments, action, create, adjust } from '../Controller/workflow.js';
+
+const router = express.Router();
+router.use(protect);
+const files = multer({ storage: multer.diskStorage({}), limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter(req, file, next) { next(null, ['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mimetype)); },
+}).array('files', 5);
+router.get('/lookups', lookups);
+router.get('/summary', summary);
+router.get('/events', auditEvents);
+router.get('/batches', availableBatches);
+router.post('/locations', addLocation);
+router.get('/trace/:id', trace);
+router.get('/records/:kind', list);
+router.get('/records/:kind/:id', detail);
+router.post('/raw/:id/sampling', action('sampling'));
+router.post('/raw/:id/tests', action('tests'));
+router.post('/raw/:id/decision', action('decision'));
+router.post('/raw/:id/accept', action('acceptRaw'));
+router.post('/requisitions', create('createRequisition'));
+router.post('/requisitions/:id/dispense', action('dispense'));
+router.post('/requisitions/:id/receive', action('receive'));
+router.post('/requisitions/:id/resolve', action('resolve'));
+router.post('/fg', create('createFgHandover'));
+router.post('/fg/:id/submit', action('submitFg'));
+router.post('/fg/:id/accept', action('acceptFg'));
+router.post('/dispatches', create('createDispatch'));
+router.post('/dispatches/:id/confirm', action('confirmDispatch'));
+router.post('/stock/:kind/:id/adjust', adjust);
+router.post('/documents/:kind/:id', (req, res, next) => files(req, res, (error) => error ? res.status(400).json({ success: false, message: error.code === 'LIMIT_FILE_SIZE' ? 'Each file must be 10 MB or smaller.' : error.message }) : next()), uploadDocuments);
+export default router;

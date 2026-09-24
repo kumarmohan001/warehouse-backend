@@ -1,3 +1,4 @@
+import workflow from './workflow.js';
 import express from 'express';
 const routes = express.Router();
 import auth from './auth.js'
@@ -12,5 +13,6 @@ routes.use('/auth',auth)
 routes.use('/user',user)
 routes.use('/dashboard',dashboard)
 routes.use('/warehouse', warehouse)
+routes.use('/workflow', workflow)
 
 export default routes;

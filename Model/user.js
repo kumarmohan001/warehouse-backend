@@ -10,6 +10,9 @@ const userSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    photoUrl: { type: String, default: '' },
+    photoPublicId: { type: String, default: '' },
+    tokenVersion: { type: Number, default: 0 },
     password: {
       type: String,
       required: true,
@@ -33,7 +36,8 @@ const userSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, 
+    timestamps: true,
+    optimisticConcurrency: true, 
   }
 );
 
