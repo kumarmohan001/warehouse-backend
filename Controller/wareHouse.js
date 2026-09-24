@@ -124,10 +124,9 @@ export const createMaterialReceiving = async (req, res) => {
     const uploaded = await uploadDocumentsToCloudinary(req.files);
     uploadedFiles = uploaded.uploads;
     payload.documents = { ...payload.documents, ...uploaded.documents };
-    const initialStatus = documentFields.every((field) => payload.documents[field]?.fileName || payload.documents[field]?.fileUrl) ? 'Quarantine' : 'Document Hold';
-    const record = await WarehouseReceiving.create({ ...payload, receivedBy: req.user._id, statusHistory: [{ to: initialStatus, changedBy: req.user._id, note: 'Warehouse receiving recorded.' }] });
+    const record = await WarehouseReceiving.create({ ...payload, receivedBy: req.user._id });
     uploadedFiles = [];
-    try { if (!record.qcAssignedTo) await notifySamplingRequired(record); else await notifyQcAssignment(record); }
+    try { if (record.qcAssignedTo) await notifyQcAssignment(record); else await notifySamplingRequired(record); }
     catch (error) { console.error('Create QC notification error:', error); }
     return res.status(201).json({
       success: true,
@@ -167,7 +166,7 @@ export const getMaterialReceivings = async (req, res) => {
 
 export const getMaterialReceivingById = async (req, res) => {
   try {
-    const record = await WarehouseReceiving.findById(req.params.id).populate('receivedBy', 'name email role').populate('qcAssignedTo', 'name email role').populate('statusHistory.changedBy', 'name email role').populate('sampling.sampledBy sampling.recordedBy qc.tests.analyst qc.decisionBy verification.acceptedBy', 'name email role');
+    const record = await WarehouseReceiving.findById(req.params.id).populate('receivedBy', 'name email role').populate('qcAssignedTo', 'name email role').populate('statusHistory.changedBy sampling.sampledBy sampling.recordedBy qc.tests.analyst qc.decisionBy verification.acceptedBy', 'name email role');
     if (!record) return res.status(404).json({ success: false, message: 'Material receiving entry not found.' });
     return res.json({ success: true, data: responseRecord(record) });
   } catch (error) {
@@ -189,7 +188,7 @@ export const getQcAssignees = async (req, res) => {
 
 export const getMyNotifications = async (req, res) => {
   try {
-    const notifications = await Notification.find({ recipient: req.user._id }).sort({ createdAt: -1 }).limit(20).populate('materialReceiving', 'grnNumber materialName status').populate('workflowRecord', 'number kind materialName status');
+    const notifications = await Notification.find({ recipient: req.user._id, read: false }).sort({ createdAt: -1 }).limit(20).populate('materialReceiving', 'grnNumber materialName status');
     return res.json({ success: true, data: { notifications } });
   } catch (error) {
     console.error('Get notifications error:', error);
@@ -206,15 +205,13 @@ export const updateMaterialReceiving = async (req, res) => {
     const changes = Object.fromEntries(editableFields
       .filter((field) => req.body?.[field] !== undefined)
       .map((field) => [field, req.body[field]]));
-    if ((record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) && Object.keys(changes).some((field) => field !== 'qcAssignedTo')) return res.status(409).json({ success: false, message: 'Receipt details are locked after sampling. Use an authorized adjustment for stock corrections.' });
-    if (record.status === 'Available') return res.status(409).json({ success: false, message: 'Accepted stock records are locked.' });
     if (!Object.keys(changes).length) return res.status(400).json({ success: false, message: 'Provide at least one editable receiving field.' });
 
+    if ((record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) && Object.keys(changes).some((field) => field !== 'qcAssignedTo')) return res.status(409).json({ success: false, message: 'Material details are locked after sampling. Only QC reassignment is allowed.' });
     const validationError = validateReceivingValues({ ...record.toObject(), ...changes });
     if (validationError) return res.status(400).json({ success: false, message: validationError });
     const previousAssignee = record.qcAssignedTo;
     if (changes.qcAssignedTo !== undefined) changes.qcAssignedTo = await validateQcAssignee(changes.qcAssignedTo);
-    record.statusHistory.push({ from: record.status, to: record.status, changedBy: req.user._id, note: `Receipt updated: ${Object.keys(changes).join(', ')}. QC reviewer: ${changes.qcAssignedTo ?? record.qcAssignedTo ?? 'unassigned'}.` });
     Object.assign(record, changes);
     await record.save();
     try { await notifyQcAssignment(record, previousAssignee); }
@@ -232,7 +229,23 @@ export const updateMaterialReceiving = async (req, res) => {
   }
 };
 
-export const deleteMaterialReceiving = async (req, res) => res.status(409).json({ success: false, message: 'Receiving records are retained for traceability. Use an authorized stock adjustment instead of deleting.' });
+export const deleteMaterialReceiving = async (req, res) => {
+  try {
+    if (!canManageWarehouse(req.user)) return res.status(403).json({ success: false, message: 'Warehouse access is required.' });
+    const record = await WarehouseReceiving.findById(req.params.id);
+    if (!record) return res.status(404).json({ success: false, message: 'Material receiving entry not found.' });
+
+    if (record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) return res.status(409).json({ success: false, message: 'A receipt in the QC workflow cannot be deleted.' });
+    const documents = documentFields.map((field) => record.documents?.[field]).filter((document) => document?.cloudinaryPublicId);
+    await record.deleteOne();
+    await Promise.allSettled(documents.map((document) => deleteWarehouseDocument(document)));
+    return res.json({ success: true, message: 'Material receiving entry deleted successfully.' });
+  } catch (error) {
+    if (error?.name === 'CastError') return res.status(400).json({ success: false, message: 'Invalid material receiving entry ID.' });
+    console.error('Delete material receiving error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to delete material receiving entry.' });
+  }
+};
 
 export const updateDocumentCheck = async (req, res) => {
   let uploadedFiles = [];
@@ -240,7 +253,7 @@ export const updateDocumentCheck = async (req, res) => {
     if (!canManageWarehouse(req.user)) return res.status(403).json({ success: false, message: 'Warehouse access is required.' });
     const record = await WarehouseReceiving.findById(req.params.id);
     if (!record) return res.status(404).json({ success: false, message: 'Material receiving entry not found.' });
-    if (record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) return res.status(409).json({ success: false, message: 'Supplier documents are locked after sampling.' });
+    if (record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) return res.status(409).json({ success: false, message: 'Receiving documents are locked after sampling.' });
     const previousStatus = record.status;
     if (!req.body?.documents && !req.files) return res.status(400).json({ success: false, message: 'Documents are required.' });
 
@@ -257,10 +270,12 @@ export const updateDocumentCheck = async (req, res) => {
     for (const name of documentFields) {
       if (documents[name] !== undefined) record.documents[name] = { ...documents[name], uploadedAt: new Date() };
     }
-    record.statusHistory.push({ from: record.status, to: record.status, changedBy: req.user._id, note: 'Supplier documents changed.' });
     record.markModified('documents');
     await record.save();
-    if (previousStatus !== 'Quarantine' && record.status === 'Quarantine') { try { await notifySamplingRequired(record); } catch (error) { console.error('Sampling notification error:', error.message); } }
+    uploadedFiles = [];
+    if (previousStatus !== 'Quarantine' && record.status === 'Quarantine') {
+      try { await notifySamplingRequired(record); } catch (error) { console.error('Sampling notification error:', error); }
+    }
     await Promise.allSettled(replacedDocuments.map((document) => deleteWarehouseDocument(document)));
     return res.json({ success: true, message: `Document check updated. Material is in ${record.status}.`, data: responseRecord(record) });
   } catch (error) {
@@ -283,7 +298,7 @@ export const deleteDocument = async (req, res) => {
 
     const record = await WarehouseReceiving.findById(req.params.id);
     if (!record) return res.status(404).json({ success: false, message: 'Material receiving entry not found.' });
-    if (record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) return res.status(409).json({ success: false, message: 'Supplier documents are locked after sampling.' });
+    if (record.sampling?.number || ['Approved', 'Rejected', 'Available'].includes(record.status)) return res.status(409).json({ success: false, message: 'Receiving documents are locked after sampling.' });
     const document = record.documents?.[field];
     if (!document?.fileName && !document?.fileUrl) return res.status(404).json({ success: false, message: 'Document not found.' });
 

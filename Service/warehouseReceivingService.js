@@ -1,4 +1,4 @@
-import { qcDecision, notifySamplingRequired } from './workflowService.js';
+import { qcDecision } from './workflowService.js';
 import mongoose from 'mongoose';
 import User from '../Model/user.js';
 import Notification from '../Model/notification.js';
@@ -17,14 +17,14 @@ export async function validateQcAssignee(id) {
 }
 
 export async function notifyQcAssignment(record, previousAssignee = null) {
-  if (record.status === 'Quarantine' && String(record.qcAssignedTo) !== String(previousAssignee)) return notifySamplingRequired(record);
-  if (!record.qcAssignedTo || String(record.qcAssignedTo) === String(previousAssignee)) return;
+  if (!record.qcAssignedTo) return;
+  if (String(record.qcAssignedTo) === String(previousAssignee)) return;
   // Persist first so offline reviewers also receive their assignments on reconnect.
   const notification = await Notification.create({
     recipient: record.qcAssignedTo,
     materialReceiving: record._id,
-    targetPage: 'Sampling', targetRole: 'qc-test',
-    title: previousAssignee ? 'Material receipt reassigned' : 'New material receipt assigned',
+    title: record.status === 'Quarantine' ? 'New material received. Sampling required.' : previousAssignee ? 'Material receipt reassigned' : 'New material receipt assigned',
+    targetPage: record.status === 'Quarantine' ? 'Sampling' : 'Receiving Stock', targetRole: 'qc-test',
     message: `${record.grnNumber} (${record.materialName}) was assigned to you for QC review. Current status: ${record.status}.`,
   });
   await notification.populate('materialReceiving', 'grnNumber materialName status');
@@ -32,6 +32,7 @@ export async function notifyQcAssignment(record, previousAssignee = null) {
 }
 
 export async function updateReceivingStatus(id, user, values) {
+  if (!['Approved', 'Rejected', 'Hold'].includes(values?.status)) fail(400, 'Use Sampling Details to start testing. Select Approved, Rejected or Hold for the QC decision.');
   return qcDecision(id, user, values);
 }
 

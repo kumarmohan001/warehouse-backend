@@ -39,13 +39,22 @@ const warehouseSchema = new mongoose.Schema({
   },
   documentStatus: { type: String, enum: ['Documents OK', 'Documents Missing/Not OK'], default: 'Documents Missing/Not OK', index: true },
   status: { type: String, enum: ['Quarantine', 'Document Hold', 'Under Test', 'Approved', 'Rejected', 'Hold', 'Available'], default: 'Document Hold', index: true },
-  sampling: { number: String, samplingDate: Date, quantity: Number, containers: Number, sampledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, remarks: String, recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, recordedAt: Date },
-  qc: {
-    tests: [{ testName: String, specification: String, requiredLimit: String, actualResult: String, testMethod: String, result: { type: String, enum: ['Pass', 'Fail'] }, analyst: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, testDate: Date, remarks: String, recordedAt: Date }],
-    documents: [attachmentSchema], decision: String, decisionBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, decisionAt: Date, decisionRemarks: String,
+  sampling: {
+    number: String, quantity: Number, containers: Number, samplingDate: Date,
+    sampledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, recordedAt: Date, remarks: String,
   },
-  verification: { acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, acceptedAt: Date, location: String, remarks: String },
+  qc: {
+    tests: [{ testName: String, specification: String, requiredLimit: String, actualResult: String,
+      testMethod: String, result: { type: String, enum: ['Pass', 'Fail'] },
+      analyst: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, testDate: Date, remarks: String, recordedAt: Date }],
+    documents: [attachmentSchema], decision: String, decisionRemarks: String,
+    decisionBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, decisionAt: Date,
+  },
   availableQuantity: { type: Number, default: 0, min: 0 },
+  verification: {
+    acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, acceptedAt: Date, location: String, remarks: String,
+  },
   statusHistory: [{ from: String, to: String, note: String, changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, changedAt: { type: Date, default: Date.now } }],
   receivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   qcAssignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },

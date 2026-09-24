@@ -6,7 +6,6 @@ import { auditEvents, list, detail, lookups, availableBatches, addLocation, summ
 const router = express.Router();
 router.use(protect);
 const files = multer({ storage: multer.diskStorage({}), limits: { fileSize: 10 * 1024 * 1024, files: 5 },
-  fileFilter(req, file, next) { next(null, ['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'].includes(file.mimetype)); },
 }).array('files', 5);
 router.get('/lookups', lookups);
 router.get('/summary', summary);

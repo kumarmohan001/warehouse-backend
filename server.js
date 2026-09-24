@@ -1,12 +1,12 @@
 import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'node:http';
-import { initializeWorkflow } from './Service/workflowService.js';
 import { initializeSockets } from './Service/socketService.js';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
 import userRoutes from './Route/index.js';
+import { initializeWorkflow } from './Service/workflowService.js';
 
 dotenv.config();
 
@@ -40,6 +40,7 @@ app.use('/api', userRoutes);
 
 app.get('/', (req, res) => res.json({ success: true, message: 'Warehouse API is running.' }));
 app.get('/health', (req, res) => res.json({ success: true, message: 'Warehouse API is healthy.' }));
+app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'API endpoint not found.' }));
 
 app.use((err, req, res, next) => {
   console.error('Request error:', err.message);

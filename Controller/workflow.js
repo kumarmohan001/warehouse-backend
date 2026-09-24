@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { documentCategories } from '../Service/documentCategories.js';
 import { unlink } from 'node:fs/promises';
 import WarehouseReceiving from '../Model/wareHouse.js';
 import User from '../Model/user.js';
@@ -120,10 +121,9 @@ export const uploadDocuments = endpoint(async (req) => {
     const kind = req.params.kind;
     if (!['qc', 'fg'].includes(kind)) fail(400, 'Invalid document target.');
     allow(req.user, kind === 'qc' ? ['qc-test'] : ['production']);
-    const documentKind = textValue(req.body.documentKind, 'Document category');
-    if (!['Test Report (COA)', 'QC Result', 'Supporting Documents', 'FG Documents'].includes(documentKind) || (kind === 'qc' && documentKind === 'FG Documents') || (kind === 'fg' && documentKind !== 'FG Documents')) fail(400, 'Choose a valid document category.');
     if (!req.files?.length) fail(400, 'Select at least one file.');
-    for (const file of req.files) uploaded.push({ ...await uploadWarehouseDocument(file), kind: documentKind });
+    const categories = documentCategories(req.body, kind, req.files.length);
+    for (const [index, file] of req.files.entries()) uploaded.push({ ...await uploadWarehouseDocument(file), kind: categories[index] });
     const record = await service.attachDocuments(kind, req.params.id, req.user, uploaded);
     return { record };
   } catch (error) {

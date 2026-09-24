@@ -25,12 +25,15 @@ export function checkDecision(record, decision, note) {
   if (!['Approved', 'Rejected', 'Hold'].includes(decision)) fail(400, 'Choose Approved, Rejected or Hold.');
   if (['Rejected', 'Hold'].includes(decision) && !note) fail(400, 'A reason is required for rejection or hold.');
   if (decision === 'Hold') return;
-  if (!record.sampling?.number || !record.qc?.tests?.length) fail(409, 'Sampling and test results are required before a final decision.');
+  if (!record.sampling?.number) fail(409, 'Sampling details are missing for this batch. Complete Sampling Details first.');
+  if (!record.qc?.tests?.length) fail(409, 'No saved test results were found for this batch. Save at least one test in Enter QC test results.');
   if (decision === 'Approved') {
     if (record.documentStatus !== 'Documents OK') fail(409, 'Complete the receiving documents first.');
     if (record.qc.tests.some((test) => test.result !== 'Pass')) fail(409, 'Every test must pass before approval.');
-    for (const kind of ['Test Report (COA)', 'QC Result', 'Supporting Documents']) {
-      if (!record.qc.documents.some((document) => document.kind === kind && document.fileUrl)) fail(409, `${kind} must be uploaded before approval.`);
+    // Structured results saved on this batch already satisfy the QC Result requirement.
+    // A separate copy of those results may be uploaded, but is not required twice.
+    for (const kind of ['Test Report (COA)', 'Supporting Documents']) {
+      if (!(record.qc.documents || []).some((document) => document.kind === kind && document.fileUrl)) fail(409, `Test results are saved. Upload the missing ${kind} attachment before approval; do not re-enter the tests.`);
     }
   }
   if (decision === 'Rejected' && !record.qc.tests.some((test) => test.result === 'Fail')) fail(409, 'Record a failed test before rejecting the batch.');

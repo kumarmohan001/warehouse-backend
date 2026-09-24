@@ -8,7 +8,7 @@ import { fail, allow, textValue, positive, amount, validDate, unexpired, require
 
 export async function nextNumber(prefix, session) {
   const sequence = await Sequence.findOneAndUpdate({ _id: prefix }, { $inc: { value: 1 } }, { new: true, upsert: true, session });
-  return `${prefix}${String(sequence.value).padStart(6, '0')}`;
+  return `${prefix}${String(sequence.value).padStart(prefix === 'A' ? 4 : 6, '0')}`;
 }
 
 async function event(record, action, user, session, details = {}) {
@@ -122,7 +122,8 @@ export async function qcDecision(id, user, values) {
     history(record, values.status, user, note);
     await record.save({ session });
     await event(record, `QC ${values.status}`, user, session, { note });
-    notifications.push(...await notify(record, `QC ${values.status}: ${record.grnNumber}`, `${record.materialName}, batch ${record.batchNo}: ${values.status}. ${note}`, ['warehouse'], values.status === 'Approved' ? 'QC Approved Queue' : 'Warehouse Stock', session));
+    const instruction = values.status === 'Approved' ? 'Ready for warehouse verification.' : values.status === 'Rejected' ? 'Reject material. Stock remains blocked.' : 'Investigation required. Stock remains blocked.';
+    notifications.push(...await notify(record, `QC ${values.status}: ${record.grnNumber}`, `${record.materialName}, batch ${record.batchNo}: ${values.status}. ${instruction} ${note}`, ['warehouse'], values.status === 'Approved' ? 'QC Approved Queue' : 'Warehouse Stock', session));
     return record;
   });
 }

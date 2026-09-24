@@ -92,9 +92,9 @@ test('only a changed assignment creates a persistent notification', async () => 
   let count = 0;
   mock.method(Notification, 'create', async (payload) => {
     count++;
-    assert.equal(String(payload[0].recipient), String(reviewer));
-    assert.equal(payload[0].materialReceiving, record._id);
-    return [{ toObject: () => payload[0] }];
+    assert.equal(String(payload.recipient), String(reviewer));
+    assert.equal(payload.materialReceiving, record._id);
+    return { populate: async () => {}, toObject: () => payload };
   });
   await notifyQcAssignment(record, reviewer);
   assert.equal(count, 0);
@@ -107,11 +107,11 @@ test('warehouse edit validates and persists reassignment and notifies new review
   mock.method(User, 'findOne', async () => ({ _id: otherReviewer }));
   let recipient;
   mock.method(Notification, 'create', async (payload) => {
-    recipient = payload[0].recipient;
-    return [{ toObject: () => payload[0] }];
+    recipient = payload.recipient;
+    return { populate: async () => {}, toObject: () => payload };
   });
   const res = response();
-  await updateMaterialReceiving({ params: { id: record._id }, user: { role: 'warehouse' }, body: { qcAssignedTo: String(otherReviewer) } }, res);
+  await updateMaterialReceiving({ params: { id: record._id }, user: { role: 'warehouse', _id: owner }, body: { qcAssignedTo: String(otherReviewer) } }, res);
   assert.equal(res.statusCode, 200);
   assert.equal(String(record.qcAssignedTo), String(otherReviewer));
   assert.equal(String(recipient), String(otherReviewer));
