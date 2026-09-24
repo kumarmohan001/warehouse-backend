@@ -11,7 +11,7 @@ export const uploadWarehouseDocument = (file) => {
   requireCloudinaryConfiguration();
   return cloudinary.uploader.upload(file.path, {
   folder: 'warehouse-receiving',
-  resource_type: 'auto',
+  resource_type: file.mimetype?.startsWith('image/') || file.mimetype === 'application/pdf' ? 'auto' : 'raw',
 }).then((result) => ({
   fileName: file.originalname,
   fileUrl: result.secure_url,

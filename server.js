@@ -1,8 +1,12 @@
+import 'dotenv/config';
 import express from 'express';
+import { createServer } from 'node:http';
+import { initializeSockets } from './Service/socketService.js';
 import dotenv from 'dotenv';
 import cors from 'cors';
 import connectDB from './config/db.js';
 import userRoutes from './Route/index.js';
+import { initializeWorkflow } from './Service/workflowService.js';
 
 dotenv.config();
 
@@ -25,6 +29,9 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
+const server = createServer(app);
+initializeSockets(server, corsOptions);
+
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 app.use(express.json());
@@ -33,6 +40,7 @@ app.use('/api', userRoutes);
 
 app.get('/', (req, res) => res.json({ success: true, message: 'Warehouse API is running.' }));
 app.get('/health', (req, res) => res.json({ success: true, message: 'Warehouse API is healthy.' }));
+app.use('/api', (req, res) => res.status(404).json({ success: false, message: 'API endpoint not found.' }));
 
 app.use((err, req, res, next) => {
   console.error('Request error:', err.message);
@@ -42,7 +50,8 @@ app.use((err, req, res, next) => {
 async function startServer() {
   try {
     await connectDB();
-    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    await initializeWorkflow();
+    server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (error) {
     console.error('Server startup failed:', error.message || error);
     process.exit(1);

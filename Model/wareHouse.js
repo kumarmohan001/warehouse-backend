@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { attachmentSchema } from './workflow.js';
 
 const documentSchema = new mongoose.Schema({
   fileName: { type: String, trim: true },
@@ -9,7 +10,7 @@ const documentSchema = new mongoose.Schema({
 }, { _id: false });
 
 const warehouseSchema = new mongoose.Schema({
-  grnNumber: { type: String, required: true, unique: true, immutable: true, index: true },
+  grnNumber: { type: String, required: true, unique: true, trim: true, index: true },
   materialType: {
     type: String,
     required: true,
@@ -37,10 +38,27 @@ const warehouseSchema = new mongoose.Schema({
     otherRequiredDocuments: { type: documentSchema, default: () => ({}) },
   },
   documentStatus: { type: String, enum: ['Documents OK', 'Documents Missing/Not OK'], default: 'Documents Missing/Not OK', index: true },
-  status: { type: String, enum: ['Quarantine', 'Document Hold'], default: 'Document Hold', index: true },
+  status: { type: String, enum: ['Quarantine', 'Document Hold', 'Under Test', 'Approved', 'Rejected', 'Hold', 'Available'], default: 'Document Hold', index: true },
+  sampling: {
+    number: String, quantity: Number, containers: Number, samplingDate: Date,
+    sampledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, recordedAt: Date, remarks: String,
+  },
+  qc: {
+    tests: [{ testName: String, specification: String, requiredLimit: String, actualResult: String,
+      testMethod: String, result: { type: String, enum: ['Pass', 'Fail'] },
+      analyst: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, testDate: Date, remarks: String, recordedAt: Date }],
+    documents: [attachmentSchema], decision: String, decisionRemarks: String,
+    decisionBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, decisionAt: Date,
+  },
+  availableQuantity: { type: Number, default: 0, min: 0 },
+  verification: {
+    acceptedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, acceptedAt: Date, location: String, remarks: String,
+  },
+  statusHistory: [{ from: String, to: String, note: String, changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, changedAt: { type: Date, default: Date.now } }],
   receivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   qcAssignedTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
-}, { timestamps: true });
+}, { timestamps: true, optimisticConcurrency: true });
 
 warehouseSchema.pre('validate', function setReceivingStatus(next) {
   const requiredDocuments = ['coa', 'invoice', 'packingList', 'otherRequiredDocuments'];
@@ -49,12 +67,10 @@ warehouseSchema.pre('validate', function setReceivingStatus(next) {
     return Boolean(document?.fileName || document?.fileUrl);
   });
   this.documentStatus = documentsOk ? 'Documents OK' : 'Documents Missing/Not OK';
-  this.status = documentsOk ? 'Quarantine' : 'Document Hold';
-  next();
-});
-
-warehouseSchema.pre('validate', function generateGrn(next) {
-  if (!this.grnNumber) this.grnNumber = `GRN-${Date.now()}`;
+  if (this.isNew || (this.isModified('documents') && ['Quarantine', 'Document Hold'].includes(this.status))) {
+    this.status = documentsOk ? 'Quarantine' : 'Document Hold';
+  }
+  if (!documentsOk && ['Quarantine', 'Under Test', 'Approved'].includes(this.status)) this.status = 'Document Hold';
   next();
 });
 

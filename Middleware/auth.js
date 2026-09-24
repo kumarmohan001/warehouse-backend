@@ -9,6 +9,7 @@ export const protect = async (req, res, next) => {
     if (await TokenBlacklist.exists({ token })) return res.status(401).json({ success: false, message: 'This session has been signed out.' });
     const decoded = verifyToken(token); const user = await User.findById(decoded.userId).select('-password');
     if (!user || user.status !== 'Active') return res.status(401).json({ success: false, message: 'Account is unavailable.' });
+    if ((decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) return res.status(401).json({ success: false, message: 'Password changed. Sign in again.' });
     req.user = user; return next();
   } catch { return res.status(401).json({ success: false, message: 'Session is invalid or has expired.' }); }
 };
