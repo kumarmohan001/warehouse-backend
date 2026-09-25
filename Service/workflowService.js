@@ -130,7 +130,7 @@ export async function qcDecision(id, user, values) {
 
 export async function acceptRawMaterial(id, user, values) {
   allow(user, ['warehouse']); confirmed(values.verified);
-  return transact(async (session) => {
+  return transact(async (session, notifications) => {
     const record = await receipt(id, session);
     requireState(record, ['Approved']); unexpired(record.expiryDate);
     if (record.qc?.decision !== 'Approved' || !record.sampling?.number) fail(409, 'Complete the QC workflow before warehouse acceptance.');
@@ -141,6 +141,7 @@ export async function acceptRawMaterial(id, user, values) {
     history(record, 'Available', user, `Physically verified and accepted at ${location}.`);
     await record.save({ session });
     await event(record, 'Raw stock accepted', user, session, { quantity: record.receivedQuantity, location });
+    notifications.push(...await notify(record, 'Raw material available for requisition', `${record.materialName} (${record.materialCode}), batch ${record.batchNo}: ${record.receivedQuantity} ${record.quantityUnit} accepted at ${location}. Create a requisition to request material.`, ['production'], 'Available Materials', session));
     return record;
   });
 }

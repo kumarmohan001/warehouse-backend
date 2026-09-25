@@ -29,6 +29,7 @@ const populateRecord = (query) => query.populate('createdBy verifiedBy dispatche
 
 export const list = endpoint(async (req) => {
   const query = scoped(req.user, req.params.kind);
+  if (req.query.awaitingReceipt === 'true' && req.params.kind === 'requisition') query['issues.status'] = 'Sent to Production';
   if (req.query.status) query.status = { $in: String(req.query.status).split(',') };
   if (req.query.search) query.$or = ['number', 'materialCode', 'materialName', 'batchNo', 'customer', 'productionOrder'].map((key) => ({ [key]: { $regex: escaped(String(req.query.search).slice(0, 100)), $options: 'i' } }));
   const page = Math.max(1, parseInt(req.query.page) || 1), limit = 20;
@@ -51,7 +52,10 @@ export const lookups = endpoint(async (req) => {
 });
 export const availableBatches = endpoint(async (req) => {
   allow(req.user, ['warehouse', 'production']);
-  const records = await WarehouseReceiving.find({ status: 'Available', availableQuantity: { $gt: 0 }, expiryDate: { $gt: new Date() }, materialCode: req.query.materialCode, quantityUnit: req.query.quantityUnit }).select('grnNumber materialCode materialName batchNo availableQuantity quantityUnit expiryDate verification').sort({ expiryDate: 1 });
+  const query = { status: 'Available', 'qc.decision': 'Approved', 'verification.acceptedAt': { $ne: null }, availableQuantity: { $gt: 0 }, expiryDate: { $gt: new Date() } };
+  if (req.query.materialCode) query.materialCode = req.query.materialCode;
+  if (req.query.quantityUnit) query.quantityUnit = req.query.quantityUnit;
+  const records = await WarehouseReceiving.find(query).select('grnNumber materialCode materialName batchNo availableQuantity quantityUnit expiryDate verification').sort({ expiryDate: 1 });
   return { records };
 });
 export const addLocation = endpoint(async (req) => {

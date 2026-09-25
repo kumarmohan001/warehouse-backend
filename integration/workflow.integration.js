@@ -62,6 +62,7 @@ test('complete material workflow with real MongoDB transactions and concurrency'
     await assert.rejects(flow.acceptRawMaterial(raw.id, wh, { verified: true, location: 'Unknown' }), { statusCode: 400 });
     const result = await flow.acceptRawMaterial(raw.id, wh, { verified: true, location: location.name });
     assert.equal(result.availableQuantity, 1000); assert.equal(result.status, 'Available');
+    assert.ok(await Notification.exists({ recipient: production._id, materialReceiving: raw._id, targetPage: 'Available Materials' }));
     await assert.rejects(flow.acceptRawMaterial(raw.id, wh, { verified: true, location: location.name }), { statusCode: 409 });
   });
 
