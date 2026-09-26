@@ -141,7 +141,7 @@ export const uploadDocuments = endpoint(async (req) => {
 export const actions = {
   sampling: service.recordSampling, tests: service.recordTests, decision: service.qcDecision, acceptRaw: service.acceptRawMaterial,
   dispense: service.dispense, receive: service.receiveProduction, resolve: service.resolveDiscrepancy,
-  submitFg: service.submitFg, acceptFg: service.acceptFg, confirmDispatch: service.confirmDispatch,
+  submitFg: service.submitFg, acceptFg: service.acceptFg, confirmDispatch: service.confirmDispatch, editDispatch: service.editDispatchQuantity,
 };
 export const action = (name) => endpoint(async (req) => ({ record: await actions[name](req.params.id, req.user, req.body || {}) }));
 export const create = (name) => endpoint(async (req) => ({ record: await service[name](req.user, req.body || {}) }));

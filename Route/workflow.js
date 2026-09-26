@@ -28,6 +28,7 @@ router.post('/fg/:id/submit', action('submitFg'));
 router.post('/fg/:id/accept', action('acceptFg'));
 router.post('/dispatches', create('createDispatch'));
 router.post('/dispatches/:id/confirm', action('confirmDispatch'));
+router.post('/dispatches/:id/quantity', action('editDispatch'));
 router.post('/stock/:kind/:id/adjust', adjust);
 router.post('/documents/:kind/:id', (req, res, next) => files(req, res, (error) => error ? res.status(400).json({ success: false, message: error.code === 'LIMIT_FILE_SIZE' ? 'Each file must be 10 MB or smaller.' : error.message }) : next()), uploadDocuments);
 export default router;

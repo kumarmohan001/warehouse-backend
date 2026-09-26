@@ -79,6 +79,8 @@ test('complete material workflow with real MongoDB transactions and concurrency'
     await assert.rejects(flow.receiveProduction(request.id, production, { issueId: issued.issues[0].id, decision: 'Accept', actualQuantity: 240, verified: true }), { statusCode: 400 });
     const discrepant = await flow.receiveProduction(request.id, production, { issueId: issued.issues[0].id, decision: 'Discrepancy', actualQuantity: 240, reason: 'Ten kg short', verified: true });
     assert.equal(discrepant.issues[0].differenceQuantity, -10); assert.equal(discrepant.status, 'Discrepancy');
+    assert.equal((await WarehouseReceiving.findById(raw.id)).availableQuantity, 750);
+    assert.ok(await Notification.exists({ recipient: wh._id, workflowRecord: request._id, targetPage: 'Requisitions (Pending)' }));
     const resolved = await flow.resolveDiscrepancy(request.id, wh, { issueId: issued.issues[0].id, reason: 'Weighing discrepancy investigated and accepted by production.' });
     assert.equal(resolved.status, 'Completed'); assert.equal((await WarehouseReceiving.findById(raw.id)).availableQuantity, 750);
     assert.ok(resolved.issues[0].reason); assert.ok(resolved.issues[0].resolution);
@@ -90,17 +92,56 @@ test('complete material workflow with real MongoDB transactions and concurrency'
     await assert.rejects(flow.submitFg(fg.id, production), { statusCode: 409 });
     await flow.attachDocuments('fg', fg.id, production, [{ kind: 'FG Documents', fileName: 'FG.pdf', fileUrl: 'https://example.test/FG.pdf' }]);
     await flow.submitFg(fg.id, production);
-    const accepted = await flow.acceptFg(fg.id, wh, { decision: 'Accept', quantity: 5000, location: location.name, verified: true });
+    assert.equal((await WorkflowRecord.findById(fg.id)).availableQuantity, 0);
+    assert.ok(await Notification.exists({ recipient: wh._id, workflowRecord: fg._id, targetPage: 'FG Receiving' }));
+    await assert.rejects(flow.acceptFg(fg.id, production, { decision: 'Accept', quantity: 5000, location: location.name, verified: true }), { statusCode: 403 });
+    const discrepancy = await flow.acceptFg(fg.id, wh, { decision: 'Discrepancy', reason: 'Packing requires inspection', verified: true });
+    assert.equal(discrepancy.status, 'Discrepancy');
+    assert.equal(discrepancy.availableQuantity, 0);
+    assert.ok(await Notification.exists({ recipient: production._id, workflowRecord: fg._id, title: 'FG handover discrepancy' }));
+    await assert.rejects(flow.acceptFg(fg.id, wh, { decision: 'Accept', quantity: 5000, location: location.name, verified: true }), { statusCode: 400 });
+    const accepted = await flow.acceptFg(fg.id, wh, { decision: 'Accept', quantity: 5000, location: location.name, verified: true, remarks: 'Packing inspected and discrepancy resolved.' });
     assert.equal(accepted.availableQuantity, 5000); assert.equal(accepted.status, 'Available');
     await assert.rejects(flow.acceptFg(fg.id, wh, { decision: 'Accept', quantity: 5000, location: location.name, verified: true }), { statusCode: 409 });
   });
   await t.test('dispatch request does not deduct; confirmation deducts once and records customer', async () => {
     const dispatch = await flow.createDispatch(wh, { fgReceipt: fg.id, quantity: 1000, customer: 'Customer A', salesOrder: 'SO-01', destination: 'Delhi', dispatchDate: today });
     assert.equal((await WorkflowRecord.findById(fg.id)).availableQuantity, 5000);
+    assert.ok(await Notification.exists({ recipient: wh._id, workflowRecord: dispatch._id, targetPage: 'FG Dispatch' }));
+    await assert.rejects(flow.confirmDispatch(dispatch.id, production, { verified: true }), { statusCode: 403 });
+    await assert.rejects(flow.confirmDispatch(dispatch.id, wh, { verified: false }), { statusCode: 400 });
     const result = await flow.confirmDispatch(dispatch.id, wh, { verified: true });
     assert.equal(result.status, 'Dispatched'); assert.equal((await WorkflowRecord.findById(fg.id)).availableQuantity, 4000);
     await assert.rejects(flow.confirmDispatch(dispatch.id, wh, { verified: true }), { statusCode: 409 });
     assert.ok(await WorkflowEvent.exists({ entity: fg._id, 'details.customer': 'Customer A' }));
+  });
+
+  await t.test('insufficient FG stock prevents dispatch without changing inventory', async () => {
+    const dispatch = await flow.createDispatch(wh, { fgReceipt: fg.id, quantity: 4001, customer: 'Customer B', salesOrder: 'SO-02', destination: 'Mumbai', dispatchDate: today });
+    await assert.rejects(flow.confirmDispatch(dispatch.id, wh, { verified: true }), { statusCode: 409 });
+    assert.equal((await WorkflowRecord.findById(fg.id)).availableQuantity, 4000);
+    assert.equal((await WorkflowRecord.findById(dispatch.id)).status, 'Pending');
+    assert.equal(await WorkflowEvent.countDocuments({ entity: dispatch._id, action: 'Dispatch confirmed' }), 0);
+  });
+
+  await t.test('only admin can edit pending dispatch quantity without changing FG inventory', async () => {
+    const dispatch = await flow.createDispatch(wh, { fgReceipt: fg.id, quantity: 4001, customer: 'Edit customer', salesOrder: 'SO-EDIT', destination: 'Delhi', dispatchDate: today });
+    const values = { previousQuantity: 4001, quantity: 50, reason: 'Correct requested quantity' };
+    for (const user of [wh, production, qc]) await assert.rejects(flow.editDispatchQuantity(dispatch.id, user, values), { statusCode: 403 });
+    for (const quantity of [0, -1, true, 'invalid', 0.0000001]) await assert.rejects(flow.editDispatchQuantity(dispatch.id, admin, { ...values, quantity }), { statusCode: 400 });
+    await assert.rejects(flow.editDispatchQuantity(dispatch.id, admin, { ...values, reason: '' }), { statusCode: 400 });
+    await assert.rejects(flow.editDispatchQuantity(dispatch.id, admin, { ...values, previousQuantity: 4000 }), { statusCode: 409 });
+    const updated = await flow.editDispatchQuantity(dispatch.id, admin, values);
+    assert.equal(updated.quantity, 50);
+    assert.equal(updated.number, dispatch.number);
+    assert.equal(updated.status, 'Pending');
+    assert.equal((await WorkflowRecord.findById(fg.id)).availableQuantity, 4000);
+    assert.ok(await WorkflowEvent.exists({ entity: dispatch._id, actor: admin._id, action: 'Dispatch quantity updated', 'details.previousQuantity': 4001, 'details.quantity': 50, note: values.reason }));
+    assert.ok(await Notification.exists({ recipient: wh._id, workflowRecord: dispatch._id, title: 'FG dispatch quantity updated' }));
+    await assert.rejects(flow.editDispatchQuantity(dispatch.id, admin, values), { statusCode: 409 });
+    // Set up a closed request to check immutability without changing fixture stock.
+    await WorkflowRecord.updateOne({ _id: dispatch._id }, { $set: { status: 'Dispatched' } });
+    await assert.rejects(flow.editDispatchQuantity(dispatch.id, admin, { ...values, previousQuantity: 50, quantity: 49 }), { statusCode: 409 });
   });
 
   await t.test('concurrent dispensing prevents overselling and rolls back losing transaction', async () => {

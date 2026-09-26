@@ -295,6 +295,25 @@ export async function createDispatch(user, values) {
   });
 }
 
+// Editing a request never credits or reserves FG inventory.
+export async function editDispatchQuantity(id, user, values) {
+  allow(user, []);
+  const quantity = positive(values.quantity, 'Dispatch quantity');
+  const note = textValue(values.reason, 'Quantity change reason');
+  return transact(async (session, notifications) => {
+    const record = await workflow(id, 'dispatch', session);
+    requireState(record, ['Pending']);
+    if (Number(values.previousQuantity) !== record.quantity) fail(409, 'Dispatch quantity changed. Refresh the record before editing.');
+    const previousQuantity = record.quantity;
+    if (quantity === previousQuantity) fail(400, 'Enter a different dispatch quantity.');
+    record.quantity = quantity;
+    await record.save({ session });
+    await event(record, 'Dispatch quantity updated', user, session, { previousQuantity, quantity, note });
+    notifications.push(...await notify(record, 'FG dispatch quantity updated', `${record.number}: ${previousQuantity} to ${quantity} ${record.quantityUnit}. ${note}`, ['warehouse'], 'FG Dispatch', session));
+    return record;
+  });
+}
+
 export async function confirmDispatch(id, user, values) {
   allow(user, ['warehouse']); confirmed(values.verified);
   return transact(async (session) => {
