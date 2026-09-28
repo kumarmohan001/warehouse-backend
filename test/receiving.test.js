@@ -87,6 +87,46 @@ test('only active QC users or managers can be assigned', async () => {
   assert.equal(await validateQcAssignee(''), null);
 });
 
+const grnDetails = () => ({ grnDate: '2026-09-22', poDate: '2026-09-16', transport: 'NEW UPKAR TRANSPORT CO.', lrNumber: '5082', packSize: '9 Boxes', inwardType: 'Packing Material', vendorCode: 'VPM001', hsnCode: '7607', purchaseFrom: 'GANESH VIHAR AMBALA CANTT', gstNumber: '06AIFPG2101HZZ', state: 'HARYANA', gstAmount: 30141.21, gstRate: 18, orderQuantity: 100, pendingQuantity: 'Not applicable', billAmount: 443127, paymentTerms: 'Advance/90 Days', quantityUnit: 'Kg' });
+
+test('GRN fields survive create, model validation and editing without a QC selection', async () => {
+  let created;
+  mock.method(WarehouseReceiving, 'create', async (data) => {
+    created = new WarehouseReceiving(data);
+    await created.validate();
+    return created;
+  });
+  const res = response();
+  await createMaterialReceiving({ user: { role: 'warehouse', _id: owner }, body: { ...values(), ...grnDetails(), qcAssignedTo: undefined } }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(created.qcAssignedTo, null);
+  for (const [key, value] of Object.entries(grnDetails())) {
+    assert.equal(key.endsWith('Date') ? created[key].toISOString().slice(0, 10) : created[key], value);
+  }
+  const record = existing({ qcAssignedTo: null });
+  const edited = response();
+  await updateMaterialReceiving({ params: { id: record._id }, user: { role: 'warehouse', _id: owner }, body: { ...grnDetails(), gstAmount: 0, billAmount: 0 } }, edited);
+  assert.equal(edited.statusCode, 200);
+  assert.equal(record.gstAmount, 0);
+  assert.equal(record.billAmount, 0);
+  assert.equal(record.paymentTerms, 'Advance/90 Days');
+});
+
+test('GRN rejects invalid dates, negative amounts and unsupported GST rates', async () => {
+  for (const invalid of [{ grnDate: 'bad' }, { poDate: 'bad' }, { gstAmount: -1 }, { billAmount: -1 }, { orderQuantity: 'abc' }, { gstRate: 28 }]) {
+    const res = response();
+    await createMaterialReceiving({ user: { role: 'warehouse', _id: owner }, body: { ...values(), ...invalid, qcAssignedTo: undefined } }, res);
+    assert.equal(res.statusCode, 400, JSON.stringify(invalid));
+  }
+});
+
+test('new GRN fields remain locked after sampling', async () => {
+  const record = existing({ sampling: { number: 'A0001' } });
+  const res = response();
+  await updateMaterialReceiving({ params: { id: record._id }, user: { role: 'warehouse', _id: owner }, body: grnDetails() }, res);
+  assert.equal(res.statusCode, 409);
+});
+
 test('only a changed assignment creates a persistent notification', async () => {
   const record = { ...values(), _id: new mongoose.Types.ObjectId(), status: 'Quarantine' };
   let count = 0;

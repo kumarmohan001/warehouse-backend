@@ -1,3 +1,4 @@
+import { mergeStockTotals } from '../Service/stockTotals.js';
 import mongoose from 'mongoose';
 import { documentCategories } from '../Service/documentCategories.js';
 import { unlink } from 'node:fs/promises';
@@ -29,6 +30,7 @@ const populateRecord = (query) => query.populate('createdBy verifiedBy dispatche
 
 export const list = endpoint(async (req) => {
   const query = scoped(req.user, req.params.kind);
+  if (req.query.awaitingReceipt === 'true' && req.params.kind === 'requisition') query['issues.status'] = 'Sent to Production';
   if (req.query.status) query.status = { $in: String(req.query.status).split(',') };
   if (req.query.search) query.$or = ['number', 'materialCode', 'materialName', 'batchNo', 'customer', 'productionOrder'].map((key) => ({ [key]: { $regex: escaped(String(req.query.search).slice(0, 100)), $options: 'i' } }));
   const page = Math.max(1, parseInt(req.query.page) || 1), limit = 20;
@@ -51,7 +53,10 @@ export const lookups = endpoint(async (req) => {
 });
 export const availableBatches = endpoint(async (req) => {
   allow(req.user, ['warehouse', 'production']);
-  const records = await WarehouseReceiving.find({ status: 'Available', availableQuantity: { $gt: 0 }, expiryDate: { $gt: new Date() }, materialCode: req.query.materialCode, quantityUnit: req.query.quantityUnit }).select('grnNumber materialCode materialName batchNo availableQuantity quantityUnit expiryDate verification').sort({ expiryDate: 1 });
+  const query = { status: 'Available', 'qc.decision': 'Approved', 'verification.acceptedAt': { $ne: null }, availableQuantity: { $gt: 0 }, expiryDate: { $gt: new Date() } };
+  if (req.query.materialCode) query.materialCode = req.query.materialCode;
+  if (req.query.quantityUnit) query.quantityUnit = req.query.quantityUnit;
+  const records = await WarehouseReceiving.find(query).select('grnNumber materialCode materialName batchNo availableQuantity quantityUnit expiryDate verification').sort({ expiryDate: 1 });
   return { records };
 });
 export const addLocation = endpoint(async (req) => {
@@ -69,7 +74,7 @@ export const summary = endpoint(async (req) => {
   const raw = await WarehouseReceiving.aggregate([{ $group: { _id: { status: '$status', unit: '$quantityUnit' }, quantity: { $sum: { $cond: [{ $eq: ['$status', 'Available'] }, '$availableQuantity', '$receivedQuantity'] } }, count: { $sum: 1 } } }, { $sort: { '_id.status': 1 } }]);
   const scope = req.user.role === 'production' ? { createdBy: req.user._id } : {};
   const transactions = await WorkflowRecord.aggregate([{ $match: scope }, { $group: { _id: { kind: '$kind', status: '$status', unit: '$quantityUnit' }, count: { $sum: 1 }, quantity: { $sum: { $cond: [{ $eq: ['$status', 'Available'] }, '$availableQuantity', '$quantity'] } } } }]);
-  return { raw, transactions };
+  return { raw: mergeStockTotals(raw), transactions: mergeStockTotals(transactions) };
 });
 
 export const auditEvents = endpoint(async (req) => {
@@ -137,7 +142,7 @@ export const uploadDocuments = endpoint(async (req) => {
 export const actions = {
   sampling: service.recordSampling, tests: service.recordTests, decision: service.qcDecision, acceptRaw: service.acceptRawMaterial,
   dispense: service.dispense, receive: service.receiveProduction, resolve: service.resolveDiscrepancy,
-  submitFg: service.submitFg, acceptFg: service.acceptFg, confirmDispatch: service.confirmDispatch,
+  submitFg: service.submitFg, acceptFg: service.acceptFg, confirmDispatch: service.confirmDispatch, editDispatch: service.editDispatchQuantity,
 };
 export const action = (name) => endpoint(async (req) => ({ record: await actions[name](req.params.id, req.user, req.body || {}) }));
 export const create = (name) => endpoint(async (req) => ({ record: await service[name](req.user, req.body || {}) }));

@@ -34,7 +34,7 @@ initializeSockets(server, corsOptions);
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '512kb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/api', userRoutes);
 

@@ -1,3 +1,4 @@
+import { validSignatureImage } from './signatureImage.js';
 import mongoose from 'mongoose';
 import WarehouseReceiving from '../Model/wareHouse.js';
 import User from '../Model/user.js';
@@ -78,8 +79,23 @@ export async function recordSampling(id, user, values) {
     const samplingDate = validDate(values.samplingDate, 'Sampling date');
     if (samplingDate > new Date() || samplingDate < new Date(new Date(record.receivingDate).setHours(0, 0, 0, 0))) fail(400, 'Sampling date must be between receiving date and today.');
     if (!mongoose.isValidObjectId(values.sampledBy) || !await User.exists({ _id: values.sampledBy, status: 'Active', role: { $in: ['qc-test', 'admin'] } }).session(session)) fail(400, 'Select an active QC sampler.');
+    let reportDetails;
+    if (values.samplersReport !== undefined) {
+      const report = values.samplersReport;
+      if (!report || typeof report !== 'object' || Array.isArray(report)) fail(400, 'Samplers report details are required.');
+      if (!Number.isInteger(values.revision) || values.revision !== (record.__v ?? 0)) fail(409, 'The stock changed. Reopen Sampling Details.');
+      const planned = positive(report.quantityToBeSampled, 'Quantity to be sampled');
+      if (planned < quantity || planned > record.receivedQuantity) fail(400, 'Planned sample quantity must be between sampled and received quantity.');
+      if (!validSignatureImage(report.signatureImage)) fail(400, 'Invalid signature image.');
+      reportDetails = { quantityToBeSampled: planned, containerType: textValue(report.containerType, 'Container type'), sealOfContainers: textValue(report.sealOfContainers, 'Seal of containers'), packingConditions: textValue(report.packingConditions, 'Packing conditions'), signatureImage: report.signatureImage || '' };
+    }
     record.sampling = { number: await nextNumber('A', session), quantity, containers, samplingDate, sampledBy: values.sampledBy,
       remarks: textValue(values.remarks, 'Sampling remarks', false), recordedBy: user._id, recordedAt: new Date() };
+    if (reportDetails) {
+      if (String(values.sampledBy) !== String(user._id)) fail(400, 'The report must be recorded by the signed-in sampler.');
+      if (record.samplersReport) record.samplersReportHistory.push(record.samplersReport.toObject());
+      record.samplersReport = { ...Object.fromEntries(['materialName', 'manufacturer', 'supplierName', 'batchNo', 'manufacturingDate', 'expiryDate', 'storageRequirement', 'containers', 'receivedQuantity', 'quantityUnit', 'grnNumber'].map(key => [key, record[key]])), ...reportDetails, arNumber: record.sampling.number, containersSampled: containers, quantitySampled: quantity, samplingDate, sampledByName: user.name || user.email, remarks: record.sampling.remarks, recordedBy: user._id, recordedByName: user.name || user.email, savedAt: new Date() };
+    }
     if (!record.qcAssignedTo) record.qcAssignedTo = user._id;
     history(record, 'Under Test', user, 'Sample collected; batch blocked pending QC.');
     await record.save({ session });
@@ -130,7 +146,7 @@ export async function qcDecision(id, user, values) {
 
 export async function acceptRawMaterial(id, user, values) {
   allow(user, ['warehouse']); confirmed(values.verified);
-  return transact(async (session) => {
+  return transact(async (session, notifications) => {
     const record = await receipt(id, session);
     requireState(record, ['Approved']); unexpired(record.expiryDate);
     if (record.qc?.decision !== 'Approved' || !record.sampling?.number) fail(409, 'Complete the QC workflow before warehouse acceptance.');
@@ -141,6 +157,7 @@ export async function acceptRawMaterial(id, user, values) {
     history(record, 'Available', user, `Physically verified and accepted at ${location}.`);
     await record.save({ session });
     await event(record, 'Raw stock accepted', user, session, { quantity: record.receivedQuantity, location });
+    notifications.push(...await notify(record, 'Raw material available for requisition', `${record.materialName} (${record.materialCode}), batch ${record.batchNo}: ${record.receivedQuantity} ${record.quantityUnit} accepted at ${location}. Create a requisition to request material.`, ['production'], 'Available Materials', session));
     return record;
   });
 }
@@ -290,6 +307,25 @@ export async function createDispatch(user, values) {
       dispatchDate: validDate(values.dispatchDate, 'Dispatch date'), remarks: textValue(values.remarks, 'Remarks', false), status: 'Pending', createdBy: user._id }], { session });
     await event(record, 'Dispatch requested', user, session, { quantity: record.quantity });
     notifications.push(...await notify(record, 'FG dispatch requested', `${record.number}: ${record.materialName} for ${record.customer}.`, ['warehouse'], 'FG Dispatch', session));
+    return record;
+  });
+}
+
+// Editing a request never credits or reserves FG inventory.
+export async function editDispatchQuantity(id, user, values) {
+  allow(user, []);
+  const quantity = positive(values.quantity, 'Dispatch quantity');
+  const note = textValue(values.reason, 'Quantity change reason');
+  return transact(async (session, notifications) => {
+    const record = await workflow(id, 'dispatch', session);
+    requireState(record, ['Pending']);
+    if (Number(values.previousQuantity) !== record.quantity) fail(409, 'Dispatch quantity changed. Refresh the record before editing.');
+    const previousQuantity = record.quantity;
+    if (quantity === previousQuantity) fail(400, 'Enter a different dispatch quantity.');
+    record.quantity = quantity;
+    await record.save({ session });
+    await event(record, 'Dispatch quantity updated', user, session, { previousQuantity, quantity, note });
+    notifications.push(...await notify(record, 'FG dispatch quantity updated', `${record.number}: ${previousQuantity} to ${quantity} ${record.quantityUnit}. ${note}`, ['warehouse'], 'FG Dispatch', session));
     return record;
   });
 }

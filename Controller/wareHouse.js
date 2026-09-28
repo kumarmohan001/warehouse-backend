@@ -1,3 +1,4 @@
+import { validSignatureImage } from '../Service/signatureImage.js';
 import { notifySamplingRequired } from '../Service/workflowService.js';
 import WarehouseReceiving from '../Model/wareHouse.js';
 import User from '../Model/user.js';
@@ -8,7 +9,7 @@ import { deleteWarehouseDocument, uploadWarehouseDocument } from '../Service/clo
 
 const warehouseRoles = ['warehouse', 'admin'];
 const requiredFields = ['grnNumber', 'materialType', 'materialCode', 'materialName', 'supplierName', 'poNumber', 'invoiceNumber', 'batchNo', 'manufacturer', 'receivedQuantity', 'containers', 'manufacturingDate', 'expiryDate', 'receivingDate', 'storageRequirement'];
-const editableFields = [...requiredFields, 'quantityUnit', 'remarks', 'qcAssignedTo'];
+const editableFields = [...requiredFields, 'quantityUnit', 'remarks', 'qcAssignedTo', 'transport', 'lrNumber', 'packSize', 'inwardType', 'vendorCode', 'hsnCode', 'purchaseFrom', 'gstNumber', 'state', 'pendingQuantity', 'paymentTerms', 'gstAmount', 'orderQuantity', 'billAmount', 'grnDate', 'poDate', 'gstRate', 'preparedSignature', 'checkedSignature', 'approvedSignature'];
 const documentFields = ['coa', 'invoice', 'packingList', 'otherRequiredDocuments'];
 const documentAliases = {
   coa: 'coa',
@@ -95,6 +96,7 @@ const validationMessage = (error) => Object.values(error.errors || {})
   .join(' ') || 'Invalid material receiving data.';
 
 const validateReceivingValues = (values) => {
+  if (['preparedSignature', 'checkedSignature', 'approvedSignature'].some(key => !validSignatureImage(values[key]))) return 'Invalid signature image. Use the signature drawing pad.';
   const missing = requiredFields.filter((field) => isBlank(values[field]));
   if (missing.length) return `Required fields: ${missing.join(', ')}.`;
 
@@ -105,6 +107,13 @@ const validateReceivingValues = (values) => {
   if (expiryDate <= manufacturingDate) return 'Expiry date must be later than manufacturing date.';
   if (!Number.isFinite(Number(values.receivedQuantity)) || Number(values.receivedQuantity) <= 0) return 'Received quantity must be greater than zero.';
   if (!Number.isInteger(Number(values.containers)) || Number(values.containers) < 1) return 'Containers must be a whole number of at least 1.';
+  for (const field of ['grnDate', 'poDate']) {
+    if (!isBlank(values[field]) && Number.isNaN(new Date(values[field]).getTime())) return field + ' must be a valid date.';
+  }
+  for (const field of ['gstAmount', 'orderQuantity', 'billAmount']) {
+    if (!isBlank(values[field]) && (!Number.isFinite(Number(values[field])) || Number(values[field]) < 0)) return field + ' must be a non-negative number.';
+  }
+  if (!isBlank(values.gstRate) && ![5, 12, 18].includes(Number(values.gstRate))) return 'GST rate must be 5, 12 or 18.';
   return null;
 };
 
@@ -171,7 +180,7 @@ export const getMaterialReceivingById = async (req, res) => {
     return res.json({ success: true, data: responseRecord(record) });
   } catch (error) {
     if (error?.name !== 'CastError') console.error('Get material receiving error:', error);
-    return res.status(400).json({ success: false, message: 'Invalid material receiving entry ID.' });
+    return res.status(error?.name === 'CastError' ? 400 : 500).json({ success: false, message: error?.name === 'CastError' ? 'Invalid material receiving entry ID.' : 'Unable to load the receiving record. Please try again.' });
   }
 };
 
