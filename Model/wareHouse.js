@@ -1,3 +1,5 @@
+import { signatureImageField } from '../Service/signatureImage.js';
+import { samplersReportSchema } from './samplersReport.js';
 import mongoose from 'mongoose';
 import { attachmentSchema } from './workflow.js';
 
@@ -10,7 +12,27 @@ const documentSchema = new mongoose.Schema({
 }, { _id: false });
 
 const warehouseSchema = new mongoose.Schema({
+  preparedSignature: signatureImageField,
+  checkedSignature: signatureImageField,
+  approvedSignature: signatureImageField,
   grnNumber: { type: String, required: true, unique: true, trim: true, index: true },
+  transport: { type: String, trim: true },
+  lrNumber: { type: String, trim: true },
+  packSize: { type: String, trim: true },
+  inwardType: { type: String, trim: true },
+  vendorCode: { type: String, trim: true },
+  hsnCode: { type: String, trim: true },
+  purchaseFrom: { type: String, trim: true },
+  gstNumber: { type: String, trim: true },
+  state: { type: String, trim: true },
+  pendingQuantity: { type: String, trim: true },
+  paymentTerms: { type: String, trim: true },
+  gstAmount: { type: Number, min: 0 },
+  orderQuantity: { type: Number, min: 0 },
+  billAmount: { type: Number, min: 0 },
+  grnDate: { type: Date },
+  poDate: { type: Date },
+  gstRate: { type: Number, enum: [5, 12, 18] },
   materialType: {
     type: String,
     required: true,
@@ -39,6 +61,8 @@ const warehouseSchema = new mongoose.Schema({
   },
   documentStatus: { type: String, enum: ['Documents OK', 'Documents Missing/Not OK'], default: 'Documents Missing/Not OK', index: true },
   status: { type: String, enum: ['Quarantine', 'Document Hold', 'Under Test', 'Approved', 'Rejected', 'Hold', 'Available'], default: 'Document Hold', index: true },
+  samplersReport: { type: samplersReportSchema, default: undefined },
+  samplersReportHistory: { type: [samplersReportSchema], default: [] },
   sampling: {
     number: String, quantity: Number, containers: Number, samplingDate: Date,
     sampledBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

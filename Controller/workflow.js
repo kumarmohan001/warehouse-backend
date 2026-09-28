@@ -1,3 +1,4 @@
+import { mergeStockTotals } from '../Service/stockTotals.js';
 import mongoose from 'mongoose';
 import { documentCategories } from '../Service/documentCategories.js';
 import { unlink } from 'node:fs/promises';
@@ -73,7 +74,7 @@ export const summary = endpoint(async (req) => {
   const raw = await WarehouseReceiving.aggregate([{ $group: { _id: { status: '$status', unit: '$quantityUnit' }, quantity: { $sum: { $cond: [{ $eq: ['$status', 'Available'] }, '$availableQuantity', '$receivedQuantity'] } }, count: { $sum: 1 } } }, { $sort: { '_id.status': 1 } }]);
   const scope = req.user.role === 'production' ? { createdBy: req.user._id } : {};
   const transactions = await WorkflowRecord.aggregate([{ $match: scope }, { $group: { _id: { kind: '$kind', status: '$status', unit: '$quantityUnit' }, count: { $sum: 1 }, quantity: { $sum: { $cond: [{ $eq: ['$status', 'Available'] }, '$availableQuantity', '$quantity'] } } } }]);
-  return { raw, transactions };
+  return { raw: mergeStockTotals(raw), transactions: mergeStockTotals(transactions) };
 });
 
 export const auditEvents = endpoint(async (req) => {

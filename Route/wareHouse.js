@@ -1,3 +1,5 @@
+import { saveStockSignatureImages } from '../Controller/stockSignatureImages.js';
+import { saveSamplersReport } from '../Controller/samplersReport.js';
 import express from 'express';
 import { changeReceivingStatus, readNotification, createMaterialReceiving, deleteDocument, deleteMaterialReceiving, getMaterialReceivingById, getMaterialReceivings, getMyNotifications, getQcAssignees, updateDocumentCheck, updateMaterialReceiving } from '../Controller/wareHouse.js';
 import { protect } from '../Middleware/auth.js';
@@ -21,6 +23,8 @@ router.get('/notifications', getMyNotifications);
 router.patch('/notifications/:id/read', readNotification);
 router.patch('/receivings/:id/status', changeReceivingStatus);
 router.get('/receivings', getMaterialReceivings);
+router.put('/receivings/:id/samplers-report', saveSamplersReport);
+router.patch('/receivings/:id/signature-images', saveStockSignatureImages);
 router.get('/receivings/:id', getMaterialReceivingById);
 router.patch('/receivings/:id', updateMaterialReceiving);
 router.delete('/receivings/:id', deleteMaterialReceiving);

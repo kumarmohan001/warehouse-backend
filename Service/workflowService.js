@@ -1,3 +1,4 @@
+import { validSignatureImage } from './signatureImage.js';
 import mongoose from 'mongoose';
 import WarehouseReceiving from '../Model/wareHouse.js';
 import User from '../Model/user.js';
@@ -78,8 +79,23 @@ export async function recordSampling(id, user, values) {
     const samplingDate = validDate(values.samplingDate, 'Sampling date');
     if (samplingDate > new Date() || samplingDate < new Date(new Date(record.receivingDate).setHours(0, 0, 0, 0))) fail(400, 'Sampling date must be between receiving date and today.');
     if (!mongoose.isValidObjectId(values.sampledBy) || !await User.exists({ _id: values.sampledBy, status: 'Active', role: { $in: ['qc-test', 'admin'] } }).session(session)) fail(400, 'Select an active QC sampler.');
+    let reportDetails;
+    if (values.samplersReport !== undefined) {
+      const report = values.samplersReport;
+      if (!report || typeof report !== 'object' || Array.isArray(report)) fail(400, 'Samplers report details are required.');
+      if (!Number.isInteger(values.revision) || values.revision !== (record.__v ?? 0)) fail(409, 'The stock changed. Reopen Sampling Details.');
+      const planned = positive(report.quantityToBeSampled, 'Quantity to be sampled');
+      if (planned < quantity || planned > record.receivedQuantity) fail(400, 'Planned sample quantity must be between sampled and received quantity.');
+      if (!validSignatureImage(report.signatureImage)) fail(400, 'Invalid signature image.');
+      reportDetails = { quantityToBeSampled: planned, containerType: textValue(report.containerType, 'Container type'), sealOfContainers: textValue(report.sealOfContainers, 'Seal of containers'), packingConditions: textValue(report.packingConditions, 'Packing conditions'), signatureImage: report.signatureImage || '' };
+    }
     record.sampling = { number: await nextNumber('A', session), quantity, containers, samplingDate, sampledBy: values.sampledBy,
       remarks: textValue(values.remarks, 'Sampling remarks', false), recordedBy: user._id, recordedAt: new Date() };
+    if (reportDetails) {
+      if (String(values.sampledBy) !== String(user._id)) fail(400, 'The report must be recorded by the signed-in sampler.');
+      if (record.samplersReport) record.samplersReportHistory.push(record.samplersReport.toObject());
+      record.samplersReport = { ...Object.fromEntries(['materialName', 'manufacturer', 'supplierName', 'batchNo', 'manufacturingDate', 'expiryDate', 'storageRequirement', 'containers', 'receivedQuantity', 'quantityUnit', 'grnNumber'].map(key => [key, record[key]])), ...reportDetails, arNumber: record.sampling.number, containersSampled: containers, quantitySampled: quantity, samplingDate, sampledByName: user.name || user.email, remarks: record.sampling.remarks, recordedBy: user._id, recordedByName: user.name || user.email, savedAt: new Date() };
+    }
     if (!record.qcAssignedTo) record.qcAssignedTo = user._id;
     history(record, 'Under Test', user, 'Sample collected; batch blocked pending QC.');
     await record.save({ session });

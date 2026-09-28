@@ -35,6 +35,22 @@ function setup() {
 }
 const sampling = () => ({ quantity: 1, containers: 1, samplingDate: day, sampledBy: qc._id, remarks: 'Collected from batch B-1' });
 
+test('Sampling Details saves the samplers report and workflow together using one AR number', async () => {
+  const { record } = setup();
+  const report = { quantityToBeSampled: 2, containerType: 'Bags', sealOfContainers: 'Intact', packingConditions: 'Good', signatureImage: '', arNumber: 'Client number', materialName: 'Client material' };
+  const user = { ...qc, name: 'QC Sampler' };
+  await assert.rejects(recordSampling(record.id, user, { ...sampling(), revision: 0, samplersReport: { ...report, quantityToBeSampled: 20 } }), { statusCode: 400 });
+  assert.equal(record.sampling?.number, undefined);
+  await assert.rejects(recordSampling(record.id, user, { ...sampling(), revision: 7, samplersReport: report }), { statusCode: 409 });
+  await recordSampling(record.id, user, { ...sampling(), revision: 0, samplersReport: report });
+  assert.equal(record.status, 'Under Test');
+  assert.equal(record.samplersReport.arNumber, record.sampling.number);
+  assert.equal(record.samplersReport.quantitySampled, record.sampling.quantity);
+  assert.equal(record.samplersReport.materialName, 'Material A');
+  assert.equal(record.samplersReport.sampledByName, 'QC Sampler');
+  assert.equal(record.samplersReport.containerType, 'Bags');
+});
+
 test('sampling persists on the received batch, validates limits, and starts blocked testing', async () => {
   const { record } = setup();
   await assert.rejects(recordSampling(record.id, warehouse, sampling()), { statusCode: 403 });

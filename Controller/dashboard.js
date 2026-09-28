@@ -1,3 +1,4 @@
+import { mergeStockTotals } from '../Service/stockTotals.js';
 import mongoose from 'mongoose';
 import { WorkflowEvent, WorkflowRecord } from '../Model/workflow.js';
 import WarehouseReceiving from '../Model/wareHouse.js';
@@ -20,7 +21,7 @@ export const getAccountDashboard = async (req, res) => {
         { $sort: { _id: 1 } },
       ]) : Promise.resolve(null),
     ]);
-    return res.json({ success: true, data: { account, totals, records, warehouseStock } });
+    return res.json({ success: true, data: { account, totals, records, warehouseStock: warehouseStock ? mergeStockTotals(warehouseStock) : null } });
   } catch (error) {
     console.error('Account dashboard error:', error);
     return res.status(500).json({ success: false, message: 'Unable to load account dashboard.' });
