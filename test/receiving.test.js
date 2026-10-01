@@ -1,5 +1,6 @@
+import { Sequence } from '../Model/workflow.js';
 import { requireQc, checkDecision } from '../Service/workflowRules.js';
-import { test, afterEach } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import mongoose from 'mongoose';
@@ -9,6 +10,11 @@ import Notification from '../Model/notification.js';
 import { validateQcAssignee, notifyQcAssignment, updateReceivingStatus, markNotificationRead } from '../Service/warehouseReceivingService.js';
 import { createMaterialReceiving, updateMaterialReceiving } from '../Controller/wareHouse.js';
 
+beforeEach(() => {
+  mock.method(WarehouseReceiving, 'aggregate', async () => []);
+  mock.method(Sequence, 'updateOne', async () => ({}));
+  mock.method(Sequence, 'findOneAndUpdate', async () => ({ value: 1 }));
+});
 afterEach(() => mock.restoreAll());
 const owner = new mongoose.Types.ObjectId();
 const reviewer = new mongoose.Types.ObjectId();
@@ -24,7 +30,7 @@ function existing(extra = {}) {
   return record;
 }
 
-test('GRN is required and never auto generated; supplied values are trimmed', async () => {
+test('persisted receipts require a GRN; legacy values remain readable', async () => {
   const record = new WarehouseReceiving({ ...values(), grnNumber: undefined });
   await assert.rejects(record.validate(), /grnNumber/);
   assert.equal(record.grnNumber, undefined);
@@ -57,20 +63,21 @@ test('document changes preserve Hold and prevent approval with missing documents
   assert.equal(record.status, 'Document Hold');
 });
 
-test('create rejects missing GRN before writing to database', async () => {
+test('create generates GRN when the client leaves it empty', async () => {
+  mock.method(WarehouseReceiving, 'create', async data => ({ ...data, status: 'Document Hold' }));
   const res = response();
-  await createMaterialReceiving({ user: { role: 'warehouse', _id: owner }, body: { ...values(), grnNumber: '' } }, res);
-  assert.equal(res.statusCode, 400);
-  assert.match(res.body.message, /grnNumber/);
+  await createMaterialReceiving({ user: { role: 'warehouse', _id: owner }, body: { ...values(), grnNumber: '', qcAssignedTo: '' } }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.data.record.grnNumber, 'GRN-001');
 });
 
-test('create accepts manual GRN alias and excludes client supplied status and owner', async () => {
+test('create ignores manual GRN alias and excludes client supplied status and owner', async () => {
   let payload;
   mock.method(WarehouseReceiving, 'create', async (data) => { payload = data; return { ...data, status: 'Document Hold' }; });
   const res = response();
   await createMaterialReceiving({ user: { role: 'warehouse', _id: owner }, body: { ...values(), grnNumber: undefined, grn: ' MAN-99 ', qcAssignedTo: '', receivedBy: otherReviewer, status: 'Approved' } }, res);
   assert.equal(res.statusCode, 201);
-  assert.equal(payload.grnNumber, 'MAN-99');
+  assert.equal(payload.grnNumber, 'GRN-001');
   assert.equal(payload.receivedBy, owner);
   assert.equal(payload.status, undefined);
   assert.equal(payload.qcAssignedTo, null);
@@ -174,4 +181,13 @@ test('read notification update is scoped to authenticated recipient', async () =
     return null;
   });
   await assert.rejects(markNotificationRead(id, reviewer), { statusCode: 404 });
+});
+
+test('GRN cannot be changed through the edit API', async () => {
+  const record = existing();
+  const res = response();
+  await updateMaterialReceiving({ params: { id: record._id }, user: { role: 'warehouse', _id: owner }, body: { grnNumber: 'GRN-999', remarks: 'Updated' } }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(record.grnNumber, 'MANUAL-123');
+  assert.equal(record.remarks, 'Updated');
 });
