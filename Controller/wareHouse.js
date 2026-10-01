@@ -1,3 +1,4 @@
+import { nextGrnNumber } from '../Service/grnNumberService.js';
 import { validSignatureImage } from '../Service/signatureImage.js';
 import { notifySamplingRequired } from '../Service/workflowService.js';
 import WarehouseReceiving from '../Model/wareHouse.js';
@@ -8,7 +9,7 @@ import { unlink } from 'node:fs/promises';
 import { deleteWarehouseDocument, uploadWarehouseDocument } from '../Service/cloudinaryService.js';
 
 const warehouseRoles = ['warehouse', 'admin'];
-const requiredFields = ['grnNumber', 'materialType', 'materialCode', 'materialName', 'supplierName', 'poNumber', 'invoiceNumber', 'batchNo', 'manufacturer', 'receivedQuantity', 'containers', 'manufacturingDate', 'expiryDate', 'receivingDate', 'storageRequirement'];
+const requiredFields = ['materialType', 'materialCode', 'materialName', 'supplierName', 'poNumber', 'invoiceNumber', 'batchNo', 'manufacturer', 'receivedQuantity', 'containers', 'manufacturingDate', 'expiryDate', 'receivingDate', 'storageRequirement'];
 const editableFields = [...requiredFields, 'quantityUnit', 'remarks', 'qcAssignedTo', 'transport', 'lrNumber', 'packSize', 'inwardType', 'vendorCode', 'hsnCode', 'purchaseFrom', 'gstNumber', 'state', 'pendingQuantity', 'paymentTerms', 'gstAmount', 'orderQuantity', 'billAmount', 'grnDate', 'poDate', 'gstRate', 'preparedSignature', 'checkedSignature', 'approvedSignature'];
 const documentFields = ['coa', 'invoice', 'packingList', 'otherRequiredDocuments'];
 const documentAliases = {
@@ -124,7 +125,6 @@ export const createMaterialReceiving = async (req, res) => {
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) return res.status(400).json({ success: false, message: 'Material receiving data is required.' });
 
     const payload = Object.fromEntries([...editableFields, 'documents'].filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
-    payload.grnNumber = String(req.body.grnNumber || req.body.grn || '').trim();
     payload.documents = normaliseDocuments(req.body.documents);
     const validationError = validateReceivingValues(payload);
     if (validationError) return res.status(400).json({ success: false, message: validationError });
@@ -133,6 +133,7 @@ export const createMaterialReceiving = async (req, res) => {
     const uploaded = await uploadDocumentsToCloudinary(req.files);
     uploadedFiles = uploaded.uploads;
     payload.documents = { ...payload.documents, ...uploaded.documents };
+    payload.grnNumber = await nextGrnNumber();
     const record = await WarehouseReceiving.create({ ...payload, receivedBy: req.user._id });
     uploadedFiles = [];
     try { if (record.qcAssignedTo) await notifyQcAssignment(record); else await notifySamplingRequired(record); }
@@ -145,7 +146,7 @@ export const createMaterialReceiving = async (req, res) => {
   } catch (error) {
     if (uploadedFiles.length) await removeCloudinaryUploads(uploadedFiles);
     if (error?.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
-    if (error?.code === 11000) return res.status(409).json({ success: false, message: 'A GRN with this number already exists. Enter a different GRN / Receiving No.' });
+    if (error?.code === 11000) return res.status(409).json({ success: false, message: 'Unable to allocate a unique GRN number. Please try saving again.' });
     if (error?.name === 'ValidationError' || error?.name === 'CastError') return res.status(400).json({ success: false, message: validationMessage(error) });
     console.error('Create material receiving error:', error);
     return res.status(500).json({ success: false, message: 'Unable to create material receiving entry.' });
